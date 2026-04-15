@@ -1,0 +1,28 @@
+node_modules/
+.next/
+dist/
+coverage/
+*.log
+tsconfig.tsbuildinfo
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+
+# Dumps, backups y caches locales
+/logs/
+/data/
+/public/
+**/*.bak
+**/*backup*.json
+nginx-backup-*
+
+# Editor y SO
+.DS_Store
+.idea/
+.vscode/
+
+# Build cache de Next en monorepos
+.turbo/
+.vercel/

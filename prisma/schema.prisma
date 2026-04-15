@@ -1,0 +1,1380 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Clan {
+  id                     String                   @id
+  name                   String                   @unique
+  tag                    String                   @unique
+  slug                   String?                  @unique  // URL-friendly identifier (e.g., "revenge_squad")
+  inGameTag              String?                  // Tag para mostrar in-game (ej: ^1QM)
+  description            String?
+  avatarUrl              String?
+  bannerUrl              String?
+  founderId              String
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime
+  averageElo             Float                    @default(900.0)
+  totalGames             Int                      @default(0)
+  totalWins              Int                      @default(0)
+  Player                 Player                   @relation(fields: [founderId], references: [id], onDelete: Cascade)
+  ClanInvitation         ClanInvitation[]
+  ClanJoinRequest        ClanJoinRequest[]
+  ClanMember             ClanMember[]
+  TournamentRegistration TournamentRegistration[]
+
+  @@index([averageElo])
+  @@index([founderId])
+  @@index([totalGames])
+}
+
+model ClanInvitation {
+  id                                      String           @id
+  clanId                                  String
+  inviterId                               String
+  inviteeId                               String
+  status                                  InvitationStatus @default(PENDING)
+  message                                 String?
+  createdAt                               DateTime         @default(now())
+  respondedAt                             DateTime?
+  Clan                                    Clan             @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  Player_ClanInvitation_inviteeIdToPlayer Player           @relation("ClanInvitation_inviteeIdToPlayer", fields: [inviteeId], references: [id], onDelete: Cascade)
+  Player_ClanInvitation_inviterIdToPlayer Player           @relation("ClanInvitation_inviterIdToPlayer", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@unique([clanId, inviteeId])
+  @@index([clanId])
+  @@index([inviteeId])
+  @@index([inviterId])
+  @@index([status])
+}
+
+model ClanJoinRequest {
+  id          String           @id
+  clanId      String
+  playerId    String
+  steamId     String
+  status      InvitationStatus @default(PENDING)
+  message     String?
+  createdAt   DateTime         @default(now())
+  respondedAt DateTime?
+  Clan        Clan             @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  Player      Player           @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([clanId, playerId])
+  @@index([clanId])
+  @@index([playerId])
+  @@index([status])
+  @@index([steamId])
+}
+
+model ClanMember {
+  id       String   @id
+  clanId   String
+  playerId String
+  steamId  String
+  role     ClanRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+  Clan     Clan     @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  Player   Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([clanId, playerId])
+  @@index([clanId])
+  @@index([playerId])
+  @@index([steamId])
+}
+
+model EloHistory {
+  id                 String            @id
+  playerId           String
+  steamId            String
+  gameType           String
+  eloBefore          Int
+  eloAfter           Int
+  change             Int
+  matchId            String?
+  playerMatchStatsId String?
+  recordedAt         DateTime          @default(now())
+  rdBefore           Float?
+  rdAfter            Float?
+  Player             Player            @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  PlayerMatchStats   PlayerMatchStats? @relation(fields: [playerMatchStatsId], references: [id], onDelete: Cascade)
+
+  @@unique([steamId, playerMatchStatsId, gameType])
+  @@index([gameType])
+  @@index([matchId])
+  @@index([playerId])
+  @@index([playerMatchStatsId])
+  @@index([recordedAt])
+  @@index([steamId])
+}
+
+// Modelos FriendMessage, Friendship y GameInvite eliminados - sistema de amigos no implementado
+
+model Match {
+  id                String             @id
+  matchId           String             @unique
+  gameType          String
+  map               String
+  serverId          String?
+  serverName        String?
+  team1Score        Int?
+  team2Score        Int?
+  winner            Int?
+  duration          Int?
+  timestamp         DateTime           @default(now())
+  gameStatus        GameStatus         @default(SUCCESS)
+  ratingProcessed   Boolean            @default(false)
+  ratingProcessedAt DateTime?
+  createdAt         DateTime           @default(now())
+  aborted           Boolean            @default(false)
+  factory           String?
+  factoryTitle      String?
+  fragLimit         Int?
+  scoreLimit        Int?
+  roundLimit        Int?
+  exitMessage       String?
+  infected          Boolean            @default(false)
+  quadhog           Boolean            @default(false)
+  training          Boolean            @default(false)
+  instagib          Boolean            @default(false)
+  // Datos del tracker (para recálculo fiel)
+  playTimes         Json?              // PLAY_TIMES del tracker: { players: { [steamId]: [free, red, blue] } }
+  roundCount        Json?              // ROUND_COUNT del tracker: { total, players: { [steamId]: { r, b } }, roundsWon: { [steamId]: n } }
+  // Campos para sistema de Liga/Ladder
+  serverType        String             @default("public") // "public" | "competitive"
+  seasonId          String?            // Referencia a temporada (si aplica)
+  isOfficial        Boolean            @default(false) // Partida oficial de liga
+  PlayerMatchStats  PlayerMatchStats[]
+  season            Season?            @relation(fields: [seasonId], references: [id])
+
+  @@index([factory])
+  @@index([gameStatus])
+  @@index([gameType])
+  @@index([map])
+  @@index([matchId])
+  @@index([ratingProcessed])
+  @@index([timestamp])
+  @@index([serverType])
+  @@index([seasonId])
+}
+
+model MatchStats {
+  id                String        @id
+  playerId          String
+  steamId           String
+  playerName        String
+  map               String
+  gameType          String
+  kills             Int           @default(0)
+  deaths            Int           @default(0)
+  damageDealt       Int           @default(0)
+  damageTaken       Int           @default(0)
+  kdRatio           Float         @default(0)
+  minLifetime       Float?
+  maxLifetime       Float?
+  avgLifetime       Float?
+  flagsCaptured     Int           @default(0)
+  flagsReturned     Int           @default(0)
+  flagPicks         Int           @default(0)
+  flagDrops         Int           @default(0)
+  carrierTakedowns  Int           @default(0)
+  playedAt          DateTime      @default(now())
+  aliveTime         Int?
+  rounds            Int?
+  score             Int           @default(0)
+  team              Int?
+  medalAccuracy     Int           @default(0)
+  medalAssists      Int           @default(0)
+  medalCaptures     Int           @default(0)
+  medalCombokill    Int           @default(0)
+  medalDefends      Int           @default(0)
+  medalExcellent    Int           @default(0)
+  medalFirstfrag    Int           @default(0)
+  medalHeadshot     Int           @default(0)
+  medalHumiliation  Int           @default(0)
+  medalImpressive   Int           @default(0)
+  medalMidair       Int           @default(0)
+  medalPerfect      Int           @default(0)
+  medalPerforated   Int           @default(0)
+  medalQuadgod      Int           @default(0)
+  medalRampage      Int           @default(0)
+  medalRevenge      Int           @default(0)
+  matchGroupId      String?
+  matchDuration     Int?
+  participationPct  Float?
+  roundsWon         Int?
+  gameStatus        GameStatus?   @default(SUCCESS)
+  statusMessage     String?
+  serverName        String?
+  ratingProcessed   Boolean?      @default(false)
+  ratingProcessedAt DateTime?     @db.Timestamp(6)
+  eloBefore         Int?
+  eloAfter          Int?
+  eloDelta          Int?
+  rdBefore          Float?
+  rdAfter           Float?
+  Player            Player        @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  WeaponStats       WeaponStats[]
+
+  @@index([gameStatus])
+  @@index([gameType])
+  @@index([map])
+  @@index([matchGroupId])
+  @@index([playedAt])
+  @@index([playerId])
+}
+
+model Notification {
+  id        String           @id
+  userId    String
+  type      NotificationType
+  title     String
+  message   String?
+  link      String?
+  metadata  Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  Player    Player           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([isRead])
+  @@index([type])
+  @@index([userId])
+}
+
+model Player {
+  id                                              String                   @id
+  steamId                                         String                   @unique
+  username                                        String
+  createdAt                                       DateTime                 @default(now())
+  updatedAt                                       DateTime
+  countryCode                                     String?
+  countryLockedAt                                 DateTime?                // When country was locked via Cloudflare IP detection
+  lastIpAddress                                   String?
+  realCountryCode                                 String?
+  privacyLevel                                    Int?                     @default(0)
+  deletedAt                                       DateTime?                @db.Timestamp(6)
+  avatar                                          String?
+  lastSeen                                        DateTime?
+  lastServer                                      String?
+  banner                                          String?
+  bannerOffsetX                                   Int?                     @default(0)
+  bannerOffsetY                                   Int?                     @default(0)
+  coverPresetId                                   String?
+  roles                                           String[]                 @default([]) // Roles: founder, dev, admin, mod
+  // Moderation fields
+  isBanned                                        Boolean                  @default(false)
+  isSuspended                                     Boolean                  @default(false)
+  banReason                                       String?
+  suspendReason                                   String?
+  bannedAt                                        DateTime?
+  bannedBy                                        String?                  // steamId del admin que baneó
+  banExpiresAt                                    DateTime?                // null = permanente
+  AccountAction                                   AccountAction[]
+  Clan                                            Clan[]
+  ClanInvitation_ClanInvitation_inviteeIdToPlayer ClanInvitation[]         @relation("ClanInvitation_inviteeIdToPlayer")
+  ClanInvitation_ClanInvitation_inviterIdToPlayer ClanInvitation[]         @relation("ClanInvitation_inviterIdToPlayer")
+  ClanJoinRequest                                 ClanJoinRequest[]
+  ClanMember                                      ClanMember[]
+  EloHistory                                      EloHistory[]
+  MatchStats                                      MatchStats[]
+  Notification                                    Notification[]
+  PlayerAlias                                     PlayerAlias[]
+  playerBadges                                    PlayerBadge[]
+  PlayerMatchStats                                PlayerMatchStats[]
+  PlayerRating                                    PlayerRating[]
+  MapRating                                       MapRating[]
+  playerTitles                                    PlayerTitle[]
+  tournamentClanRosters                           TournamentClanRoster[]
+  tournamentRegistrations                         TournamentRegistration[]
+  captainedTeams                                  TournamentTeam[]             @relation("TeamCaptain")
+  tournamentTeamMemberships                       TournamentTeamMember[]       @relation("TeamMemberships")
+  WeaponStats                                     WeaponStats[]
+  seasonRatings                                   SeasonRating[]           // Rankings de temporadas de liga
+  comments                                        Comment[]
+  forumThreads                                    ForumThread[]
+  forumReplies                                    ForumReply[]
+  pollVotes                                       PollVote[]
+  serverPermissions                               ServerPermission[]
+  // Steam playtime cache
+  steamPlaytimeMinutes                            Int?                     // Total minutes in Quake Live (Steam API)
+  steamPlaytimeUpdatedAt                          DateTime?                // Last fetch from Steam
+  linkedAccounts                                  LinkedAccount[]
+
+  @@index([deletedAt])
+  @@index([privacyLevel])
+  @@index([steamId])
+}
+
+model PlayerAlias {
+  id        String   @id
+  playerId  String
+  steamId   String
+  alias     String
+  firstSeen DateTime @default(now())
+  lastSeen  DateTime @default(now())
+  timesUsed Int      @default(1)
+  Player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([steamId, alias])
+  @@index([lastSeen])
+  @@index([playerId])
+  @@index([steamId])
+}
+
+model PlayerMatchStats {
+  id               String        @id
+  matchId          String
+  playerId         String
+  steamId          String
+  playerName       String
+  kills            Int           @default(0)
+  deaths           Int           @default(0)
+  damageDealt      Int           @default(0)
+  damageTaken      Int           @default(0)
+  kdRatio          Float         @default(0)
+  flagsCaptured    Int           @default(0)
+  flagsReturned    Int           @default(0)
+  flagPicks        Int           @default(0)
+  flagDrops        Int           @default(0)
+  carrierTakedowns Int           @default(0)
+  aliveTime        Int?
+  rounds           Int?
+  score            Int           @default(0)
+  team             Int?
+  medalAccuracy    Int           @default(0)
+  medalAssists     Int           @default(0)
+  medalCaptures    Int           @default(0)
+  medalCombokill   Int           @default(0)
+  medalDefends     Int           @default(0)
+  medalExcellent   Int           @default(0)
+  medalFirstfrag   Int           @default(0)
+  medalHeadshot    Int           @default(0)
+  medalHumiliation Int           @default(0)
+  medalImpressive  Int           @default(0)
+  medalMidair      Int           @default(0)
+  medalPerfect     Int           @default(0)
+  medalPerforated  Int           @default(0)
+  medalQuadgod     Int           @default(0)
+  medalRampage     Int           @default(0)
+  medalRevenge     Int           @default(0)
+  participationPct Float?
+  roundsWon        Int?
+  quit             Boolean            @default(false)
+  gameStatus       GameStatus?   @default(SUCCESS)
+  statusMessage    String?
+  eloBefore        Int?
+  eloAfter         Int?
+  eloDelta         Int?
+  rdBefore         Float?
+  rdAfter          Float?
+  createdAt        DateTime      @default(now())
+  performance      Float         @default(0)
+  EloHistory       EloHistory[]
+  Match            Match         @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  Player           Player        @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  WeaponStats      WeaponStats[]
+
+  @@unique([matchId, steamId])
+  @@index([gameStatus])
+  @@index([matchId])
+  @@index([playerId])
+  @@index([steamId])
+}
+
+model PlayerRating {
+  id            String    @id
+  playerId      String
+  steamId       String
+  gameType      String
+  rating        Float     @default(900.0)
+  deviation     Float     @default(350.0)
+  volatility    Float     @default(0.06)
+  wins          Int       @default(0)
+  losses        Int       @default(0)
+  draws         Int       @default(0)
+  totalGames    Int       @default(0)
+  currentStreak Int       @default(0)
+  lastPlayed    DateTime  @default(now())
+  updatedAt     DateTime
+  kFactor       Float?    @default(1.0)
+  lastDecay     DateTime? @default(now()) @db.Timestamp(6)
+  ratingType    String    @default("public") // "public" | "ladder" (off-season liga)
+  Player        Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([steamId, gameType, ratingType])
+  @@index([gameType])
+  @@index([lastPlayed])
+  @@index([playerId])
+  @@index([rating])
+  @@index([steamId])
+  @@index([totalGames])
+  @@index([ratingType])
+}
+
+// Rating por mapa — tracking separado del rating global
+// Blend: 75% rating del mapa + 25% rating global (como QLLR)
+model MapRating {
+  id         String   @id
+  playerId   String
+  steamId    String
+  gameType   String
+  mapName    String
+  ratingType String   @default("public")
+  rating     Float    @default(900.0)
+  deviation  Float    @default(350.0)
+  wins       Int      @default(0)
+  losses     Int      @default(0)
+  totalGames Int      @default(0)
+  lastPlayed DateTime @default(now())
+  updatedAt  DateTime
+  Player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([steamId, gameType, mapName, ratingType])
+  @@index([steamId, gameType])
+  @@index([mapName])
+  @@index([playerId])
+  @@index([rating])
+}
+
+model WeaponStats {
+  id                 String            @id
+  playerId           String
+  matchId            String?
+  playerMatchStatsId String?
+  weapon             Weapon
+  hits               Int               @default(0)
+  shots              Int               @default(0)
+  damage             Int               @default(0)
+  kills              Int               @default(0)
+  accuracy           Float             @default(0)
+  createdAt          DateTime          @default(now())
+  MatchStats         MatchStats?       @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  Player             Player            @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  PlayerMatchStats   PlayerMatchStats? @relation(fields: [playerMatchStatsId], references: [id], onDelete: Cascade)
+
+  @@index([matchId])
+  @@index([playerId])
+  @@index([playerMatchStatsId])
+  @@index([weapon])
+}
+
+// Modelo banner_config eliminado - usa JSON en vez de BD
+
+model Server {
+  id                 String        @id @default(cuid())
+  serverId           String        @unique
+  name               String
+  currentMap         String?
+  currentGameType    String?
+  state              String?       @default("warmup")
+  matchGuid          String?
+  redScore           Int           @default(0)
+  blueScore          Int           @default(0)
+  playerCount        Int           @default(0)
+  maxPlayers         Int           @default(26)
+  lastUpdate         DateTime      @default(now())
+  isOnline           Boolean       @default(true)
+  lastMatchRedScore  Int?
+  lastMatchBlueScore Int?
+  config             Json?
+  currentPlayers     Json?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  // ServerEvent eliminado - eventos de servidor no utilizados
+
+  @@index([serverId])
+  @@index([isOnline])
+  @@index([lastUpdate])
+}
+
+// Modelo ServerEvent eliminado - eventos de servidor no utilizados
+
+model Tournament {
+  id                 String                   @id @default(cuid())
+  name               String
+  description        String?
+  gameType           String
+  format             TournamentFormat         @default(SINGLE_ELIMINATION)
+  teamBased          Boolean                  @default(false)
+  maxParticipants    Int                      @default(16)
+  status             TournamentStatus         @default(UPCOMING)
+  registrationOpens  DateTime?
+  registrationCloses DateTime?
+  startsAt           DateTime?
+  endsAt             DateTime?
+  rules              String?
+  prizes             String?
+  imageUrl           String?
+  createdBy          String
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  checkInEndTime     DateTime?
+  checkInStartTime   DateTime?
+  tournamentType     TournamentType?          @default(STANDARD)
+  groupsCount        Int?
+  teamsPerGroup      Int?
+  playoffFormat      String?
+  minRosterSize      Int?
+  maxRosterSize      Int?
+  tournamentRules    String?
+  scheduleNotes      String?
+  mapsPerMatch       Int?
+  slug               String?                  @unique
+  seasonId           String?                  // Enlazar torneo a una temporada
+  groups             TournamentGroup[]
+  mapPool            TournamentMapPool[]
+  matches            TournamentMatch[]
+  matchdays          TournamentMatchday[]
+  registrations      TournamentRegistration[]
+  teams              TournamentTeam[]
+  season             Season?                  @relation(fields: [seasonId], references: [id])
+  pickBanFormat      String?                  // "bo1", "bo3", "bo5" — defines pick/ban sequence
+
+  @@index([status, startsAt])
+  @@index([tournamentType])
+  @@index([seasonId])
+}
+
+model TournamentRegistration {
+  id               String                 @id @default(cuid())
+  tournamentId     String
+  participantType  ParticipantType
+  playerId         String?
+  clanId           String?
+  tournamentTeamId String?                @unique
+  seed             Int?
+  status           RegistrationStatus     @default(PENDING)
+  checkedInAt      DateTime?
+  registeredAt     DateTime               @default(now())
+  notes            String?
+  groupId          String?
+  groupPosition    Int?
+  roster           TournamentClanRoster[]
+  matchesAsP1      TournamentMatch[]      @relation("Participant1")
+  matchesAsP2      TournamentMatch[]      @relation("Participant2")
+  matchesWon       TournamentMatch[]      @relation("Winner")
+  mapsWon          TournamentMatchMap[]   @relation("MapWinner")
+  clan             Clan?                  @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  group            TournamentGroup?       @relation(fields: [groupId], references: [id])
+  player           Player?                @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  tournament       Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  tournamentTeam   TournamentTeam?        @relation(fields: [tournamentTeamId], references: [id], onDelete: Cascade)
+
+  @@index([tournamentId])
+  @@index([playerId])
+  @@index([clanId])
+  @@index([groupId])
+}
+
+model TournamentClanRoster {
+  id             String                 @id @default(cuid())
+  registrationId String
+  playerId       String
+  role           String?
+  addedAt        DateTime               @default(now())
+  player         Player                 @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  registration   TournamentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([registrationId])
+  @@index([playerId])
+}
+
+model TournamentMatch {
+  id               String                  @id @default(cuid())
+  tournamentId     String
+  round            Int
+  matchNumber      Int
+  bracket          BracketType             @default(UPPER)
+  participant1Id   String?
+  participant2Id   String?
+  winnerId         String?
+  score1           Int?
+  score2           Int?
+  status           MatchStatus             @default(PENDING)
+  scheduledFor     DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  streamUrl        String?
+  vodUrl           String?
+  notes            String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  nextLoserMatchId String?
+  nextMatchId      String?
+  participant1     Json?
+  participant2     Json?
+  roundText        String?
+  groupId          String?
+  matchdayId       String?
+  isPlayoff        Boolean                 @default(false)
+  homeTeamId       String?
+  bestOf           Int?
+  tentativeDate    DateTime?
+  officialDate     DateTime?
+  matchNotes       String?
+  group            TournamentGroup?        @relation(fields: [groupId], references: [id])
+  matchday         TournamentMatchday?     @relation(fields: [matchdayId], references: [id])
+  participant1Reg  TournamentRegistration? @relation("Participant1", fields: [participant1Id], references: [id])
+  participant2Reg  TournamentRegistration? @relation("Participant2", fields: [participant2Id], references: [id])
+  tournament       Tournament              @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  winner           TournamentRegistration? @relation("Winner", fields: [winnerId], references: [id])
+  maps             TournamentMatchMap[]
+  pickBan          TournamentPickBan?
+
+  @@index([tournamentId, round])
+  @@index([nextMatchId])
+  @@index([nextLoserMatchId])
+  @@index([groupId])
+  @@index([matchdayId])
+}
+
+model TournamentGroup {
+  id            String                   @id @default(cuid())
+  tournamentId  String
+  name          String
+  order         Int
+  createdAt     DateTime                 @default(now())
+  tournament    Tournament               @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  matches       TournamentMatch[]
+  registrations TournamentRegistration[]
+
+  @@index([tournamentId])
+}
+
+model TournamentMatchday {
+  id             String            @id @default(cuid())
+  tournamentId   String
+  matchdayNumber Int
+  name           String?
+  scheduledDate  DateTime?
+  officialDate   DateTime?
+  notes          String?
+  isReturn       Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  matches        TournamentMatch[]
+  tournament     Tournament        @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@index([tournamentId])
+}
+
+model TournamentMatchMap {
+  id            String                  @id @default(cuid())
+  matchId       String
+  mapNumber     Int
+  mapName       String
+  winnerId      String?
+  score1        Int?
+  score2        Int?
+  screenshotUrl String?
+  notes         String?
+  status        MapStatus               @default(PENDING)
+  playedAt      DateTime?
+  validatedAt   DateTime?
+  validatedBy   String?
+  createdAt     DateTime                @default(now())
+  match         TournamentMatch         @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  winner        TournamentRegistration? @relation("MapWinner", fields: [winnerId], references: [id])
+
+  @@index([matchId])
+  @@index([status])
+}
+
+model TournamentMapPool {
+  id           String     @id @default(cuid())
+  tournamentId String
+  mapName      String
+  imageUrl     String?    // custom override, defaults to /levelshots/{mapName}.jpg
+  order        Int        @default(0)
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, mapName])
+  @@index([tournamentId])
+}
+
+model TournamentPickBan {
+  id            String                    @id @default(cuid())
+  matchId       String                    @unique
+  status        PickBanStatus             @default(WAITING)
+  format        String                    // "bo1", "bo3", "bo5"
+  currentStep   Int                       @default(0)
+  coinFlipWinner String?                  // participantId who won coin flip (picks first or second)
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  match         TournamentMatch           @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  actions       TournamentPickBanAction[]
+}
+
+model TournamentPickBanAction {
+  id         String            @id @default(cuid())
+  pickBanId  String
+  step       Int               // order of action (0, 1, 2, ...)
+  action     String            // "ban" or "pick"
+  mapName    String
+  teamId     String            // participantId (registration ID) who did this
+  createdAt  DateTime          @default(now())
+  pickBan    TournamentPickBan @relation(fields: [pickBanId], references: [id], onDelete: Cascade)
+
+  @@unique([pickBanId, step])
+  @@index([pickBanId])
+}
+
+enum PickBanStatus {
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+}
+
+// Standalone Pick/Ban sessions (decoupled from tournaments)
+model PickBanSession {
+  id            String               @id @default(cuid())
+  format        String               // "bo1", "bo3", "bo5"
+  status        PickBanStatus        @default(WAITING)
+  team1Name     String
+  team1Tag      String
+  team1Avatar   String?
+  team2Name     String
+  team2Tag      String
+  team2Avatar   String?
+  mapPool       String[]             // array of map names
+  currentStep   Int                  @default(0)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  createdById   String?              // admin who created it
+  actions       PickBanSessionAction[]
+}
+
+model PickBanSessionAction {
+  id         String          @id @default(cuid())
+  sessionId  String
+  step       Int
+  action     String          // "ban" or "pick"
+  mapName    String
+  team       String          // "a" (team1) or "b" (team2)
+  createdAt  DateTime        @default(now())
+  session    PickBanSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, step])
+  @@index([sessionId])
+}
+
+model TournamentTeam {
+  id             String                  @id @default(cuid())
+  tournamentId   String
+  name           String
+  tag            String
+  avatarUrl      String?
+  captainId      String
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  tournament     Tournament              @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  captain        Player                  @relation("TeamCaptain", fields: [captainId], references: [id])
+  members        TournamentTeamMember[]
+  registration   TournamentRegistration?
+
+  @@unique([tournamentId, tag])
+  @@index([tournamentId])
+  @@index([captainId])
+}
+
+model TournamentTeamMember {
+  id        String           @id @default(cuid())
+  teamId    String
+  playerId  String
+  role      String?
+  status    TeamMemberStatus @default(PENDING)
+  invitedAt DateTime         @default(now())
+  joinedAt  DateTime?
+  team      TournamentTeam   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player    Player           @relation("TeamMemberships", fields: [playerId], references: [id])
+
+  @@unique([teamId, playerId])
+  @@index([teamId])
+  @@index([playerId])
+}
+
+model Title {
+  id           String        @id @default(cuid())
+  name         String        @unique
+  titleUrl     String?
+  titleColor   String?
+  createdAt    DateTime      @default(now())
+  createdBy    String?
+  playerTitles PlayerTitle[]
+}
+
+model Badge {
+  id           String        @id @default(cuid())
+  name         String        @unique
+  description  String?
+  imageUrl     String
+  badgeUrl     String?
+  category     String?
+  createdAt    DateTime      @default(now())
+  createdBy    String?
+  playerBadges PlayerBadge[]
+
+  @@index([category])
+}
+
+model PlayerTitle {
+  id        String   @id @default(cuid())
+  playerId  String
+  priority  Int      @default(0)
+  isActive  Boolean  @default(true)
+  awardedAt DateTime @default(now())
+  createdBy String?
+  createdAt DateTime @default(now())
+  titleId   String?
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  title     Title?   @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, titleId])
+  @@index([playerId])
+  @@index([titleId])
+  @@index([isActive])
+  @@index([priority])
+}
+
+model PlayerBadge {
+  id        String   @id @default(cuid())
+  playerId  String
+  awardedAt DateTime @default(now())
+  createdBy String?
+  createdAt DateTime @default(now())
+  badgeId   String?
+  badge     Badge?   @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, badgeId])
+  @@index([playerId])
+  @@index([badgeId])
+  @@index([awardedAt])
+}
+
+model CoverPreset {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  imageUrl  String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  @@index([active])
+}
+
+model LinkedAccountGroup {
+  id         String          @id @default(cuid())
+  status     String          @default("pending") // pending | confirmed | dismissed
+  note       String?
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  accounts   LinkedAccount[]
+
+  @@index([status])
+}
+
+model LinkedAccount {
+  id        String             @id @default(cuid())
+  groupId   String
+  playerId  String?
+  steamId   String
+  sharedIps String[]
+  isPrimary Boolean            @default(false)
+  group     LinkedAccountGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  player    Player?            @relation(fields: [playerId], references: [id], onDelete: SetNull)
+
+  @@unique([groupId, steamId])
+  @@index([groupId])
+  @@index([steamId])
+  @@index([playerId])
+}
+
+model ZmqServerConfig {
+  id         String          @id @default(cuid())
+  name       String
+  ip         String
+  port       Int
+  password   String
+  owner      String?
+  gamePort   Int?
+  status     ZmqServerStatus @default(DISCONNECTED)
+  enabled    Boolean         @default(true)
+  lastSeen   DateTime?
+  addedBy    String?
+  notes      String?
+  serverType String          @default("public") // "public" | "competitive"
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@unique([ip, port])
+  @@index([status])
+  @@index([enabled])
+  @@index([serverType])
+}
+
+// Historial de acciones de moderación (estilo osu-web)
+model AccountAction {
+  id        String   @id @default(cuid())
+  steamId   String
+  type      String   // "note", "ban", "unban", "suspend", "unsuspend", "silence", "role_change"
+  reason    String?
+  details   String?  // Info adicional (ej: "Roles: admin → mod", URL de evidencia)
+  duration  Int?     // Duración en segundos (0 o null = permanente para bans)
+  actorId   String?  // steamId o oduserId del admin que ejecutó la acción
+  actorName String?  // Username del admin (para mostrar en historial)
+  createdAt DateTime @default(now())
+
+  Player Player @relation(fields: [steamId], references: [steamId])
+
+  @@index([steamId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+enum ClanRole {
+  FOUNDER
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+// Enum FriendshipStatus eliminado - modelos Friendship/GameInvite eliminados
+
+enum GameStatus {
+  SUCCESS
+  WARMUP_ONLY
+  ABORTED
+  TOO_FEW_PLAYERS
+  TOO_SHORT
+  BOTMATCH
+  UNBALANCED_TEAMS
+  DUPLICATE
+  INVALID_DATA
+  SERVER_ERROR
+  UNRATED_SERVER
+  PARTIAL_SUCCESS
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+// Tipos de notificación activos (sistema de amistad eliminado)
+enum NotificationType {
+  CLAN_INVITE
+  CLAN_REQUEST
+  MATCH_RESULT
+  SYSTEM
+  FORUM_REPLY
+}
+
+// Enum PlayerOnlineStatus eliminado - modelo PlayerStatus eliminado
+
+enum Weapon {
+  LG
+  RL
+  RG
+  SG
+  PG
+  GL
+  MG
+  GT
+  HMG
+}
+
+enum TournamentType {
+  STANDARD
+  CUSTOM_GROUP
+}
+
+enum TournamentFormat {
+  SINGLE_ELIMINATION
+  DOUBLE_ELIMINATION
+  ROUND_ROBIN
+  SWISS
+  FREE_FOR_ALL
+}
+
+enum MapStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  DISPUTED
+  VALIDATED
+}
+
+enum TournamentStatus {
+  UPCOMING
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ParticipantType {
+  PLAYER
+  CLAN
+  TEAM
+}
+
+enum TeamMemberStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CHECKED_IN
+  ELIMINATED
+}
+
+enum BracketType {
+  WINNERS
+  LOSERS
+  GRAND_FINALS
+  UPPER
+  LOWER
+  FINALS
+}
+
+enum MatchStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  BYE
+  WALKOVER
+}
+
+enum ZmqServerStatus {
+  CONNECTED
+  CONNECTING
+  DISCONNECTED
+  ERROR
+}
+
+enum SeasonStatus {
+  UPCOMING
+  ACTIVE
+  FINISHED
+  CANCELLED
+}
+
+
+// ============================================================
+// SISTEMA DE LIGA/LADDER - Temporadas y Rankings Competitivos
+// ============================================================
+
+model Season {
+  id          String       @id @default(cuid())
+  name        String       // "Liga Verano 2025"
+  slug        String       @unique // "liga-verano-2025"
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  status      SeasonStatus @default(UPCOMING)
+  gameTypes   String[]     // ["ca", "duel", "tdm", "ctf", "ffa"]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relaciones
+  ratings     SeasonRating[]
+  matches     Match[]
+  tournaments Tournament[]
+
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+model SeasonRating {
+  id        String   @id @default(cuid())
+  seasonId  String
+  playerId  String
+  steamId   String
+  gameType  String
+  rating    Float    @default(900.0)  // ELO base para liga
+  deviation Float    @default(350.0)
+  wins      Int      @default(0)
+  losses    Int      @default(0)
+  draws     Int      @default(0)
+  games     Int      @default(0)
+  lastPlayed DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, steamId, gameType])
+  @@index([seasonId])
+  @@index([playerId])
+  @@index([steamId])
+  @@index([gameType])
+  @@index([rating])
+}
+
+// Status monitoring history for uptime tracking
+model StatusHistory {
+  id          String   @id @default(cuid())
+  service     String   // "api" or "servers"
+  status      String   // "operational", "degraded", "down"
+  responseTime Int?    // Response time in ms
+  details     String?  // Additional info like "3/3 servers online"
+  date        DateTime @default(now()) // The day this status was recorded
+  createdAt   DateTime @default(now())
+
+  @@unique([service, date]) // One record per service per day
+  @@index([service])
+  @@index([date])
+}
+
+// ============================================================
+// AUDIT LOG - Sistema completo de auditoría
+// ============================================================
+
+model AuditLog {
+  id         String        @id @default(cuid())
+  category   AuditCategory
+  action     String        // "BAN_PLAYER", "STEAM_LOGIN", "MATCH_PROCESSED", etc.
+  actorType  ActorType     @default(USER)
+  actorId    String?       // steamId, "system", null para anónimo
+  actorName  String?       // Nombre denormalizado
+  actorIp    String?
+  targetType String?       // "player", "clan", "tournament", "match", etc.
+  targetId   String?
+  targetName String?       // Nombre denormalizado
+  details    Json?         // Contexto variable (razón, duración, before/after)
+  status     AuditStatus   @default(SUCCESS)
+  method     String?       // GET, POST, PATCH, DELETE
+  path       String?       // Ruta API
+  userAgent  String?
+  duration   Int?          // Duración del request en ms
+  createdAt  DateTime      @default(now())
+
+  @@index([category])
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@index([category, createdAt])
+}
+
+enum AuditCategory {
+  AUTH
+  ADMIN
+  PLAYER
+  CLAN
+  TOURNAMENT
+  MATCH
+  RATING
+  SERVER
+  CONTENT
+  SYSTEM
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  ANONYMOUS
+}
+
+enum AuditStatus {
+  SUCCESS
+  FAILURE
+  ERROR
+}
+
+// ============================================================
+// SISTEMA COMUNITARIO - Comentarios, Foro y Encuestas
+// ============================================================
+
+enum ForumThreadStatus {
+  OPEN
+  CLOSED
+}
+
+enum PollStatus {
+  ACTIVE
+  CLOSED
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  newsId    String
+  authorId  String
+  steamId   String
+  username  String
+  avatar    String?
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author Player @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([newsId, createdAt])
+  @@index([authorId])
+}
+
+model ForumCategory {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  slug        String        @unique
+  description String?
+  order       Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  threads     ForumThread[]
+
+  @@index([order])
+}
+
+model ForumThread {
+  id          String            @id @default(cuid())
+  categoryId  String
+  title       String
+  content     String
+  authorId    String
+  steamId     String
+  username    String
+  avatar      String?
+  status      ForumThreadStatus @default(OPEN)
+  isPinned    Boolean           @default(false)
+  replyCount  Int               @default(0)
+  lastReplyAt DateTime?
+  lastReplyBy String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  category ForumCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  author   Player        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  replies  ForumReply[]
+
+  @@index([categoryId, isPinned, lastReplyAt])
+  @@index([categoryId, createdAt])
+  @@index([authorId])
+}
+
+model ForumReply {
+  id        String   @id @default(cuid())
+  threadId  String
+  authorId  String
+  steamId   String
+  username  String
+  avatar    String?
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  thread ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author Player      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@index([authorId])
+}
+
+model Poll {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  status      PollStatus @default(ACTIVE)
+  createdBy   String
+  totalVotes  Int        @default(0)
+  createdAt   DateTime   @default(now())
+  closedAt    DateTime?
+  updatedAt   DateTime   @updatedAt
+
+  options PollOption[]
+  votes   PollVote[]
+
+  @@index([status, createdAt])
+}
+
+model PollOption {
+  id        String     @id @default(cuid())
+  pollId    String
+  text      String
+  voteCount Int        @default(0)
+  order     Int        @default(0)
+
+  poll  Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes PollVote[]
+
+  @@index([pollId, order])
+}
+
+model PollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  optionId  String
+  voterId   String
+  steamId   String
+  createdAt DateTime @default(now())
+
+  poll   Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  option PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  voter  Player     @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, voterId])
+  @@index([pollId])
+  @@index([voterId])
+}
+
+model QuitRecord {
+  id            String   @id @default(cuid())
+  steamId       String
+  matchId       String?
+  gameType      String
+  penaltyApplied Boolean @default(false)
+  penaltyAmount  Int     @default(0)
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([steamId, createdAt])
+  @@index([steamId, expiresAt])
+}
+
+// Permisos de admin por servidor de Quake Live
+// Global admins (roles: admin/mod/founder en Player) tienen permisos en TODOS los servidores
+// ServerPermission almacena permisos adicionales por servidor específico
+model ServerPermission {
+  id        String   @id @default(cuid())
+  steamId   String
+  serverId  String   // Identificador del servidor: ca_1, ca_2, duel_1, prc, etc.
+  grantedBy String?
+  grantedAt DateTime @default(now())
+  notes     String?
+
+  player Player @relation(fields: [steamId], references: [steamId], onDelete: Cascade)
+
+  @@unique([steamId, serverId])
+  @@index([serverId])
+  @@index([steamId])
+}
+
+// Snapshots horarios de jugadores online para gráfico de peak hours
+model ServerSnapshot {
+  id          String   @id @default(cuid())
+  hour        Int      // 0-23 (hora Chile)
+  dayOfWeek   Int      // 0=domingo, 6=sábado
+  playerCount Int
+  recordedAt  DateTime @default(now())
+
+  @@index([hour])
+  @@index([recordedAt])
+}
+
