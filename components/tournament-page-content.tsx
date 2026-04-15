@@ -308,6 +308,18 @@ export default function TournamentPageContent({ params }: { params: Promise<{ id
         refetchOnWindowFocus: true
     })
 
+    // Equipos de torneo del usuario actual (capitan o miembro). Se usa para
+    // detectar si ya armo un mix en este torneo y mostrar el boton correcto.
+    const { data: tournamentTeamsData } = useQuery({
+        queryKey: ['tournament-teams', id, authData?.user?.steamId],
+        queryFn: async () => {
+            const res = await fetch(`/api/esport/tournaments/${id}/teams`)
+            if (!res.ok) return { teams: [] }
+            return res.json()
+        },
+        enabled: !!authData?.user?.steamId
+    })
+
     if (isLoading) {
         return <LoadingScreen />
     }
@@ -332,13 +344,25 @@ export default function TournamentPageContent({ params }: { params: Promise<{ id
     const userRegistration = userClan && tournament?.registrations?.find(
         (r: any) => r.clan?.id === userClan.id || r.clanId === userClan.id
     )
-    // Check if user has a tournament team registered
-    const userTeamRegistration = authData?.user?.steamId && tournament?.registrations?.find(
-        (r: any) => r.tournamentTeam && r.participantType === 'TEAM'
-    )
-    const isAlreadyRegistered = !!userRegistration || !!userTeamRegistration
-    const isPendingApproval = userRegistration?.status === 'PENDING' || userTeamRegistration?.status === 'PENDING'
-    const isApproved = userRegistration?.status === 'APPROVED' || userTeamRegistration?.status === 'APPROVED'
+    // Equipo de torneo propio: capitan o miembro. Se usa para mostrar
+    // "Continuar mi equipo" en vez de "Crear" si ya hay uno en progreso.
+    const userTournamentTeam = authData?.user?.steamId
+        ? tournamentTeamsData?.teams?.find((t: any) =>
+            t.captain?.steamId === authData.user.steamId ||
+            t.members?.some((m: any) =>
+                m.player?.steamId === authData.user.steamId &&
+                m.status !== 'REJECTED'
+            )
+        )
+        : null
+    // Inscripcion del equipo del usuario (cuando ya esta inscrito al torneo)
+    const userTeamRegistration = userTournamentTeam
+        ? tournament?.registrations?.find(
+            (r: any) => r.tournamentTeam?.id === userTournamentTeam.id
+        )
+        : null
+    const isClanRegistered = !!userRegistration
+    const isTeamRegistered = !!userTeamRegistration
     const isFounder = clanData?.role === 'FOUNDER'
 
     const getStatusLabel = (status: string) => {
@@ -375,7 +399,14 @@ export default function TournamentPageContent({ params }: { params: Promise<{ id
     const isCustomTournament = tournament.tournamentType === 'CUSTOM_GROUP'
     const isEliminationTournament = tournament.format === 'SINGLE_ELIMINATION' || tournament.format === 'DOUBLE_ELIMINATION'
     const showRegistrationCTA = tournament.status === 'REGISTRATION_OPEN'
-    const canRegister = showRegistrationCTA && !isAlreadyRegistered && isFounder
+    // Inscribir clan: solo si es fundador y el clan aun no esta inscrito.
+    const canRegisterClan = showRegistrationCTA && !!userClan && isFounder && !isClanRegistered
+    // Crear equipo de torneo (mix): independiente del clan. Solo se bloquea
+    // si el usuario ya tiene un equipo en este torneo (capitan o miembro).
+    const canCreateTournamentTeam = showRegistrationCTA && !!authData?.user && !userTournamentTeam
+    // Continuar gestionando un equipo en progreso (capitan).
+    const canManageTournamentTeam = showRegistrationCTA && !!userTournamentTeam &&
+        userTournamentTeam.captain?.steamId === authData?.user?.steamId
     const approvedTeams = (tournament.registrations?.filter((r: any) => r.status === 'APPROVED') || []).sort((a: any, b: any) => {
         const aName = (a.tournamentTeam?.tag || a.clan?.tag || a.player?.username || '').toLowerCase()
         const bName = (b.tournamentTeam?.tag || b.clan?.tag || b.player?.username || '').toLowerCase()
@@ -668,51 +699,61 @@ export default function TournamentPageContent({ params }: { params: Promise<{ id
                                     </section>
                                 )}
 
-                                {/* Registration CTA */}
+                                {/* Registration CTA: status del clan/equipo + botones independientes */}
                                 {showRegistrationCTA && (
                                     <section className="rounded-[28px] border border-foreground/[0.06] bg-card px-6 py-6 shadow-[0_16px_36px_rgba(18,18,22,0.08)]">
-                                        {isApproved ? (
-                                            <>
-                                                <h3 className="text-sm font-bold text-emerald-400 mb-1 uppercase tracking-[0.08em]">
-                                                    Tu clan esta inscrito
-                                                </h3>
-                                                <p className="text-[14px] text-[var(--qc-text-secondary)] font-opensans tracking-normal">
-                                                    Tu clan <span className="text-foreground font-bold">[{userClan?.tag}]</span> esta confirmado para este torneo
-                                                </p>
-                                            </>
-                                        ) : isPendingApproval ? (
-                                            <>
-                                                <h3 className="text-sm font-bold text-amber-400 mb-1 uppercase tracking-[0.08em]">
-                                                    Inscripcion pendiente
-                                                </h3>
-                                                <p className="text-[14px] text-[var(--qc-text-secondary)] font-opensans tracking-normal">
-                                                    Tu clan <span className="text-foreground font-bold">[{userClan?.tag}]</span> esta pendiente de aprobacion
-                                                </p>
-                                            </>
-                                        ) : canRegister ? (
-                                            <>
-                                                <h3 className="text-sm font-bold text-foreground mb-1 uppercase tracking-[0.08em]">
-                                                    Inscripciones abiertas
-                                                </h3>
-                                                <p className="text-[14px] text-[var(--qc-text-secondary)] mb-5 font-opensans tracking-normal">
-                                                    Inscribe a tu clan o crea un equipo para participar en este torneo
-                                                </p>
-                                                <div className="flex flex-wrap gap-3">
-                                                    <Link
-                                                        href={`/esport/${id}/inscribir`}
-                                                        className="inline-block px-6 py-3 bg-foreground text-background text-sm font-bold rounded-lg hover:opacity-92 transition-opacity"
-                                                    >
-                                                        Inscribir mi clan
-                                                    </Link>
-                                                    <Link
-                                                        href={`/esport/${id}/equipo`}
-                                                        className="inline-block px-6 py-3 bg-foreground/[0.06] text-foreground text-sm font-bold rounded-lg hover:bg-foreground/[0.10] transition-colors border border-foreground/[0.10]"
-                                                    >
-                                                        Crear equipo de torneo
-                                                    </Link>
-                                                </div>
-                                            </>
-                                        ) : !authData?.user ? (
+                                        {/* Status: clan inscrito (informativo, no bloquea crear mix) */}
+                                        {isClanRegistered && (
+                                            <div className="mb-5">
+                                                {userRegistration?.status === 'APPROVED' ? (
+                                                    <>
+                                                        <h3 className="text-sm font-bold text-emerald-400 mb-1 uppercase tracking-[0.08em]">
+                                                            Tu clan esta inscrito
+                                                        </h3>
+                                                        <p className="text-[14px] text-[var(--qc-text-secondary)] font-opensans tracking-normal">
+                                                            Tu clan <span className="text-foreground font-bold">[{userClan?.tag}]</span> esta confirmado para este torneo
+                                                        </p>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <h3 className="text-sm font-bold text-amber-400 mb-1 uppercase tracking-[0.08em]">
+                                                            Inscripcion de clan pendiente
+                                                        </h3>
+                                                        <p className="text-[14px] text-[var(--qc-text-secondary)] font-opensans tracking-normal">
+                                                            Tu clan <span className="text-foreground font-bold">[{userClan?.tag}]</span> esta pendiente de aprobacion
+                                                        </p>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Status: equipo de torneo propio (mix) */}
+                                        {userTournamentTeam && (
+                                            <div className="mb-5">
+                                                {isTeamRegistered ? (
+                                                    <>
+                                                        <h3 className="text-sm font-bold text-emerald-400 mb-1 uppercase tracking-[0.08em]">
+                                                            Tu equipo esta inscrito
+                                                        </h3>
+                                                        <p className="text-[14px] text-[var(--qc-text-secondary)] font-opensans tracking-normal">
+                                                            Tu equipo <span className="text-foreground font-bold">[{userTournamentTeam.tag}]</span> esta {userTeamRegistration?.status === 'APPROVED' ? 'confirmado' : 'pendiente de aprobacion'}
+                                                        </p>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <h3 className="text-sm font-bold text-foreground mb-1 uppercase tracking-[0.08em]">
+                                                            Equipo en preparacion
+                                                        </h3>
+                                                        <p className="text-[14px] text-[var(--qc-text-secondary)] font-opensans tracking-normal">
+                                                            Tu equipo <span className="text-foreground font-bold">[{userTournamentTeam.tag}]</span> aun no se inscribe. Termina de armar el roster.
+                                                        </p>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Botones de accion independientes */}
+                                        {!authData?.user ? (
                                             <>
                                                 <h3 className="text-sm font-bold text-foreground mb-1 uppercase tracking-[0.08em]">
                                                     Inscripciones abiertas
@@ -727,45 +768,58 @@ export default function TournamentPageContent({ params }: { params: Promise<{ id
                                                     Iniciar sesion
                                                 </Link>
                                             </>
-                                        ) : !userClan ? (
+                                        ) : (
                                             <>
-                                                <h3 className="text-sm font-bold text-foreground mb-1 uppercase tracking-[0.08em]">
-                                                    Inscripciones abiertas
-                                                </h3>
-                                                <p className="text-[14px] text-[var(--qc-text-secondary)] mb-5 font-opensans tracking-normal">
-                                                    Crea un equipo de torneo o un clan para participar
-                                                </p>
+                                                {!isClanRegistered && !userTournamentTeam && (
+                                                    <>
+                                                        <h3 className="text-sm font-bold text-foreground mb-1 uppercase tracking-[0.08em]">
+                                                            Inscripciones abiertas
+                                                        </h3>
+                                                        <p className="text-[14px] text-[var(--qc-text-secondary)] mb-5 font-opensans tracking-normal">
+                                                            {!userClan
+                                                                ? 'Crea un equipo de torneo o un clan para participar'
+                                                                : !isFounder
+                                                                    ? 'Solo el fundador del clan puede inscribirlo, pero puedes crear un equipo de torneo'
+                                                                    : 'Inscribe a tu clan o crea un equipo de torneo (mix) para participar'}
+                                                        </p>
+                                                    </>
+                                                )}
                                                 <div className="flex flex-wrap gap-3">
-                                                    <Link
-                                                        href={`/esport/${id}/equipo`}
-                                                        className="inline-block px-6 py-3 bg-foreground text-background text-sm font-bold rounded-lg hover:opacity-92 transition-opacity"
-                                                    >
-                                                        Crear equipo de torneo
-                                                    </Link>
-                                                    <Link
-                                                        href="/clanes/create"
-                                                        className="inline-block px-6 py-3 bg-foreground/[0.06] text-foreground text-sm font-bold rounded-lg hover:bg-foreground/[0.10] transition-colors border border-foreground/[0.10]"
-                                                    >
-                                                        Crear un clan
-                                                    </Link>
+                                                    {canRegisterClan && (
+                                                        <Link
+                                                            href={`/esport/${id}/inscribir`}
+                                                            className="inline-block px-6 py-3 bg-foreground text-background text-sm font-bold rounded-lg hover:opacity-92 transition-opacity"
+                                                        >
+                                                            Inscribir mi clan
+                                                        </Link>
+                                                    )}
+                                                    {canCreateTournamentTeam && (
+                                                        <Link
+                                                            href={`/esport/${id}/equipo`}
+                                                            className="inline-block px-6 py-3 bg-foreground/[0.06] text-foreground text-sm font-bold rounded-lg hover:bg-foreground/[0.10] transition-colors border border-foreground/[0.10]"
+                                                        >
+                                                            Crear equipo de torneo
+                                                        </Link>
+                                                    )}
+                                                    {canManageTournamentTeam && (
+                                                        <Link
+                                                            href={`/esport/${id}/equipo`}
+                                                            className="inline-block px-6 py-3 bg-foreground/[0.06] text-foreground text-sm font-bold rounded-lg hover:bg-foreground/[0.10] transition-colors border border-foreground/[0.10]"
+                                                        >
+                                                            {isTeamRegistered ? 'Ver mi equipo' : 'Continuar mi equipo'}
+                                                        </Link>
+                                                    )}
+                                                    {!userClan && !userTournamentTeam && (
+                                                        <Link
+                                                            href="/clanes/create"
+                                                            className="inline-block px-6 py-3 bg-foreground/[0.06] text-foreground text-sm font-bold rounded-lg hover:bg-foreground/[0.10] transition-colors border border-foreground/[0.10]"
+                                                        >
+                                                            Crear un clan
+                                                        </Link>
+                                                    )}
                                                 </div>
                                             </>
-                                        ) : !isFounder ? (
-                                            <>
-                                                <h3 className="text-sm font-bold text-foreground mb-1 uppercase tracking-[0.08em]">
-                                                    Inscripciones abiertas
-                                                </h3>
-                                                <p className="text-[14px] text-[var(--qc-text-secondary)] mb-5 font-opensans tracking-normal">
-                                                    Solo el fundador del clan puede inscribirlo, pero puedes crear un equipo de torneo
-                                                </p>
-                                                <Link
-                                                    href={`/esport/${id}/equipo`}
-                                                    className="inline-block px-6 py-3 bg-foreground text-background text-sm font-bold rounded-lg hover:opacity-92 transition-opacity"
-                                                >
-                                                    Crear equipo de torneo
-                                                </Link>
-                                            </>
-                                        ) : null}
+                                        )}
                                     </section>
                                 )}
 
